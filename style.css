@@ -1,0 +1,40 @@
+/* Fondo general */
+body { margin: 0; background: #000; color: white; font-family: serif; overflow-x: hidden; text-align: center; }
+#particles-js { position: fixed; width: 100%; height: 100%; z-index: -1; top: 0; left: 0; }
+
+.seccion-central { padding-top: 80px; transition: opacity 1s ease; }
+.oculto { display: none !important; }
+
+/* El cuadro y el texto que se desintegra */
+.cuadro-frase { border: 1px solid rgba(212, 175, 55, 0.4); padding: 30px; display: inline-block; margin-bottom: 40px; box-shadow: 0 0 20px rgba(212, 175, 55, 0.2); }
+.texto-polvo { 
+    color: #d4af37; font-size: 1.5rem; text-shadow: 0 0 10px gold;
+    animation: desintegrar 4s infinite; /* Se desintegra cada 4 segundos */
+}
+@keyframes desintegrar {
+    0%, 100% { opacity: 1; filter: blur(0px); transform: scale(1); }
+    50% { opacity: 0; filter: blur(10px); transform: scale(1.1); text-shadow: 0 0 30px white; }
+}
+
+/* Botones */
+.btn-principal { background: rgba(0,0,0,0.6); color: #d4af37; border: 2px solid #d4af37; padding: 15px 30px; font-size: 1.2rem; cursor: pointer; transition: 0.3s; text-transform: uppercase; letter-spacing: 2px; }
+.btn-principal:hover { background: #d4af37; color: #000; box-shadow: 0 0 20px gold; }
+
+/* Publicidad */
+.espacio-adsense { width: 300px; height: 50px; border: 1px dashed gray; margin: 40px auto; color: gray; font-size: 10px; display: flex; align-items: center; justify-content: center; }
+
+/* La Esfera del Oráculo */
+.esfera-magica { width: 120px; height: 120px; background: radial-gradient(circle, #00d4ff 10%, #001133 80%); border-radius: 50%; margin: 20px auto; box-shadow: 0 0 60px #00d4ff; animation: latir 3s infinite; }
+@keyframes latir { 0%, 100% { transform: scale(1); box-shadow: 0 0 40px #00d4ff; } 50% { transform: scale(1.1); box-shadow: 0 0 80px #00d4ff; } }
+.texto-guia { color: #00d4ff; font-style: italic; margin-bottom: 30px; }
+
+/* Las 7 Cartas Cósmicas */
+.contenedor-cartas { display: flex; justify-content: center; gap: 15px; flex-wrap: wrap; max-width: 600px; margin: 0 auto; }
+.carta { width: 70px; height: 110px; border: 1px solid #00d4ff; background: rgba(0, 20, 40, 0.8); border-radius: 5px; box-shadow: 0 0 10px #00d4ff; animation: aparecerCosmica 1.5s forwards; opacity: 0; }
+@keyframes aparecerCosmica { 0% { transform: scale(0) translateY(50px); opacity: 0; } 100% { transform: scale(1) translateY(0); opacity: 1; } }
+
+/* Ventana de Registro */
+.modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); display: flex; align-items: center; justify-content: center; z-index: 100; }
+.modal-contenido { background: #111; padding: 40px; border: 1px solid #d4af37; max-width: 400px; border-radius: 10px; text-align: center; }
+.modal-contenido h2 { color: #d4af37; }
+
