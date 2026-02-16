@@ -3,29 +3,40 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Tarot IA - El Oráculo Estelar</title>
+    <title>Tarot IA - El Oráculo</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
     <div id="particles-js"></div>
 
-    <div class="pantalla-inicio">
-        <div class="cuadro-frase" id="frase-polvo">
-            "El destino se escribe entre las estrellas"
+    <div id="pantalla-inicio" class="seccion-central">
+        
+        <div class="cuadro-frase">
+            <h2 class="texto-polvo">"El destino fluye como el polvo de estrellas"</h2>
         </div>
 
-        <button class="btn-oraculo" onclick="iniciarLectura()">Consultar al Oráculo</button>
-        
-        <div class="ads-superior">
-            <p style="color: #666; font-size: 10px;">PUBLICIDAD</p>
+        <button class="btn-principal" onclick="consultarOraculo()">Revelar mi Destino</button>
+
+        <div class="espacio-adsense">
+            <p>ESPACIO PARA PUBLICIDAD</p>
         </div>
     </div>
 
-    <div id="escena-oraculo" class="oculto">
-        <div class="encapuchado">
-            <div class="esfera-celeste"></div>
+    <div id="escena-oraculo" class="seccion-central oculto">
+        <div class="esfera-magica"></div>
+        <p class="texto-guia">El Oráculo ha extraído 7 cartas del universo...</p>
+        
+        <div id="mesa-cartas" class="contenedor-cartas"></div>
+    </div>
+
+    <div id="ventana-registro" class="modal oculto">
+        <div class="modal-contenido">
+            <h2>El Oráculo requiere tu energía</h2>
+            <p>Ya has consumido tu lectura gratuita. Regístrate para consultar nuevamente y guardar tu destino.</p>
+            <button class="btn-principal">Crear mi Cuenta</button>
+            <br><br>
+            <a href="#" style="color: gray;" onclick="cerrarRegistro()">Cancelar</a>
         </div>
-        <div id="mazo-siete" class="cartas-layout"></div>
     </div>
 
     <script src="https://cdn.jsdelivr.net/particles.js/2.0.0/particles.min.js"></script>
