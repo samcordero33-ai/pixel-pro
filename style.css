@@ -1,40 +1,117 @@
-/* Fondo general */
-body { margin: 0; background: #000; color: white; font-family: serif; overflow-x: hidden; text-align: center; }
-#particles-js { position: fixed; width: 100%; height: 100%; z-index: -1; top: 0; left: 0; }
+/* Configuraciones generales */
+body {
+    margin: 0;
+    font-family: 'Georgia', serif;
+    background-color: #050505;
+    color: #e0e0e0;
+    overflow-x: hidden;
+}
 
-.seccion-central { padding-top: 80px; transition: opacity 1s ease; }
 .oculto { display: none !important; }
 
-/* El cuadro y el texto que se desintegra */
-.cuadro-frase { border: 1px solid rgba(212, 175, 55, 0.4); padding: 30px; display: inline-block; margin-bottom: 40px; box-shadow: 0 0 20px rgba(212, 175, 55, 0.2); }
-.texto-polvo { 
-    color: #d4af37; font-size: 1.5rem; text-shadow: 0 0 10px gold;
-    animation: desintegrar 4s infinite; /* Se desintegra cada 4 segundos */
-}
-@keyframes desintegrar {
-    0%, 100% { opacity: 1; filter: blur(0px); transform: scale(1); }
-    50% { opacity: 0; filter: blur(10px); transform: scale(1.1); text-shadow: 0 0 30px white; }
+/* SECCIÓN 1: BANNER PRINCIPAL */
+.banner-principal {
+    position: relative;
+    width: 100%;
+    height: 100vh; /* Ocupa el 100% de la pantalla visible */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    overflow: hidden;
 }
 
-/* Botones */
-.btn-principal { background: rgba(0,0,0,0.6); color: #d4af37; border: 2px solid #d4af37; padding: 15px 30px; font-size: 1.2rem; cursor: pointer; transition: 0.3s; text-transform: uppercase; letter-spacing: 2px; }
-.btn-principal:hover { background: #d4af37; color: #000; box-shadow: 0 0 20px gold; }
+#particles-js {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    top: 0;
+    left: 0;
+    z-index: 1; /* Fondo */
+}
+
+.contenido-banner {
+    position: relative;
+    z-index: 2; /* Por encima de las estrellas */
+    padding: 20px;
+}
+
+.frase-mistica {
+    font-size: 2.5rem;
+    color: #ffffff;
+    font-weight: normal;
+    text-shadow: 0 0 15px rgba(255, 255, 255, 0.5);
+    margin-bottom: 40px;
+}
+
+.btn-oraculo {
+    background: transparent;
+    color: #4facfe;
+    border: 2px solid #4facfe;
+    padding: 15px 40px;
+    font-size: 1.2rem;
+    cursor: pointer;
+    border-radius: 5px;
+    transition: 0.3s;
+    text-transform: uppercase;
+}
+.btn-oraculo:hover {
+    background: #4facfe;
+    color: #000;
+    box-shadow: 0 0 20px #4facfe;
+}
+
+/* SECCIONES DE CONTENIDO (Info, Comentarios, etc) */
+.seccion-info, .seccion-comentarios, .seccion-oscura {
+    padding: 60px 20px;
+    max-width: 800px;
+    margin: 0 auto;
+    text-align: center;
+}
+
+.seccion-info h2, .seccion-comentarios h2 {
+    color: #d4af37; /* Dorado sutil */
+    margin-bottom: 20px;
+}
+
+.seccion-info p {
+    font-size: 1.1rem;
+    line-height: 1.6;
+    color: #cccccc;
+}
+
+/* Comentarios */
+.caja-comentario {
+    background: #111;
+    border-left: 3px solid #d4af37;
+    padding: 15px;
+    margin-bottom: 15px;
+    text-align: left;
+}
+.caja-comentario strong { color: #fff; }
+.caja-comentario p { margin: 5px 0 0 0; color: #aaa; font-style: italic; }
 
 /* Publicidad */
-.espacio-adsense { width: 300px; height: 50px; border: 1px dashed gray; margin: 40px auto; color: gray; font-size: 10px; display: flex; align-items: center; justify-content: center; }
+.seccion-publicidad {
+    padding: 40px 20px;
+    background: #000;
+}
+.banner-adsense {
+    width: 100%;
+    max-width: 728px;
+    height: 90px;
+    margin: 0 auto;
+    background: #222;
+    color: #666;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px dashed #444;
+}
 
-/* La Esfera del Oráculo */
-.esfera-magica { width: 120px; height: 120px; background: radial-gradient(circle, #00d4ff 10%, #001133 80%); border-radius: 50%; margin: 20px auto; box-shadow: 0 0 60px #00d4ff; animation: latir 3s infinite; }
-@keyframes latir { 0%, 100% { transform: scale(1); box-shadow: 0 0 40px #00d4ff; } 50% { transform: scale(1.1); box-shadow: 0 0 80px #00d4ff; } }
-.texto-guia { color: #00d4ff; font-style: italic; margin-bottom: 30px; }
-
-/* Las 7 Cartas Cósmicas */
-.contenedor-cartas { display: flex; justify-content: center; gap: 15px; flex-wrap: wrap; max-width: 600px; margin: 0 auto; }
-.carta { width: 70px; height: 110px; border: 1px solid #00d4ff; background: rgba(0, 20, 40, 0.8); border-radius: 5px; box-shadow: 0 0 10px #00d4ff; animation: aparecerCosmica 1.5s forwards; opacity: 0; }
-@keyframes aparecerCosmica { 0% { transform: scale(0) translateY(50px); opacity: 0; } 100% { transform: scale(1) translateY(0); opacity: 1; } }
-
-/* Ventana de Registro */
-.modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); display: flex; align-items: center; justify-content: center; z-index: 100; }
-.modal-contenido { background: #111; padding: 40px; border: 1px solid #d4af37; max-width: 400px; border-radius: 10px; text-align: center; }
-.modal-contenido h2 { color: #d4af37; }
-
+/* Oráculo y Cartas */
+.esfera-magica { width: 100px; height: 100px; background: radial-gradient(circle, #4facfe 10%, #001133 80%); border-radius: 50%; margin: 20px auto; box-shadow: 0 0 50px #4facfe; animation: latir 3s infinite; }
+@keyframes latir { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.1); } }
+.contenedor-cartas { display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; margin-top: 30px; }
+.carta { width: 60px; height: 100px; background: #001133; border: 1px solid #4facfe; border-radius: 5px; animation: aparecer 1s forwards; opacity: 0; }
+@keyframes aparecer { from { transform: translateY(50px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
