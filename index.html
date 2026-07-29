@@ -1,38 +1,538 @@
-<!DOCTYPE html>
-<html lang="es">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Tarot IA - El Oráculo</title>
-    <link rel="stylesheet" href="style.css">
-</head>
-<body>
-    <div id="particles-js"></div>
+import { useState, useRef, useCallback, useEffect } from "react";
 
-    <div id="pantalla-inicio" class="seccion-central">
-        
-        <div class="cuadro-frase">
-            <h2 class="texto-polvo">"El destino fluye como el polvo de estrellas"</h2>
-        </div>
+/* ── Colores ── */
+const C = {
+  bg: "#0f1117",
+  sidebar: "#161a25",
+  card: "#1e2336",
+  cardHover: "#252b3b",
+  border: "#2a3045",
+  accent: "#6c63ff",
+  accentSoft: "rgba(108,99,255,0.15)",
+  accentGlow: "rgba(108,99,255,0.35)",
+  green: "#22c55e",
+  greenSoft: "rgba(34,197,94,0.15)",
+  red: "#ef4444",
+  cyan: "#22d3ee",
+  cyanSoft: "rgba(34,211,238,0.12)",
+  pink: "#f472b6",
+  pinkSoft: "rgba(244,114,182,0.12)",
+  ink: "#e8eaf0",
+  inkDim: "#8892aa",
+  inkFaint: "#4a5168",
+};
 
-        <button class="btn-principal" onclick="consultarOraculo()">Revelar mi Destino</button>
+/* ── Procesamiento de imagen ── */
+function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 
-        <div class="espacio-adsense">
-            <p>ESPACIO PARA PUBLICIDAD</p>
-        </div>
+function applyEnhance(imageData, brightness, contrast, sharpness) {
+  const d = imageData.data;
+  const cf = (259 * (contrast + 255)) / (255 * (259 - contrast));
+  for (let i = 0; i < d.length; i += 4)
+    for (let c = 0; c < 3; c++) {
+      let v = d[i+c] + brightness;
+      d[i+c] = clamp(cf * (v - 128) + 128, 0, 255);
+    }
+  if (sharpness > 0) {
+    const amt = sharpness / 100, { width: w, height: h } = imageData;
+    const src = new Uint8ClampedArray(d), k = [0,-1,0,-1,5,-1,0,-1,0];
+    for (let y = 1; y < h-1; y++)
+      for (let x = 1; x < w-1; x++)
+        for (let c = 0; c < 3; c++) {
+          let s = 0, ki = 0;
+          for (let ky = -1; ky <= 1; ky++)
+            for (let kx = -1; kx <= 1; kx++)
+              s += src[((y+ky)*w+(x+kx))*4+c] * k[ki++];
+          const idx = (y*w+x)*4+c;
+          d[idx] = clamp(src[idx]*(1-amt)+s*amt, 0, 255);
+        }
+  }
+  return imageData;
+}
+
+function applyBgRemoval(imageData, tolerance) {
+  const { data: d, width: w, height: h } = imageData;
+  const smp = (cx, cy) => {
+    let r=0,g=0,b=0,n=0;
+    for (let dy=-2;dy<=2;dy++) for (let dx=-2;dx<=2;dx++) {
+      const x=clamp(cx+dx,0,w-1), y=clamp(cy+dy,0,h-1), i=(y*w+x)*4;
+      r+=d[i]; g+=d[i+1]; b+=d[i+2]; n++;
+    }
+    return [r/n, g/n, b/n];
+  };
+  const corners = [smp(2,2), smp(w-3,2), smp(2,h-3), smp(w-3,h-3)];
+  const bg = [0,1,2].map(c => corners.reduce((s,p) => s+p[c], 0)/4);
+  const thresh = (tolerance/100) * Math.sqrt(3*255*255);
+  for (let i=0; i<d.length; i+=4) {
+    const dr=d[i]-bg[0], dg=d[i+1]-bg[1], db=d[i+2]-bg[2];
+    const dist = Math.sqrt(dr*dr+dg*dg+db*db);
+    if (dist < thresh) d[i+3] = dist < thresh*0.65 ? 0 : clamp((dist/thresh)*255, 0, 255);
+  }
+  return imageData;
+}
+
+function applyVectorize(imageData, levels, edgeStr) {
+  const { data: d, width: w, height: h } = imageData;
+  const step = 255/(levels-1);
+  for (let i=0; i<d.length; i+=4)
+    for (let c=0; c<3; c++) d[i+c] = clamp(Math.round(d[i+c]/step)*step, 0, 255);
+  const gray = new Float32Array(w*h);
+  for (let i=0,p=0; i<d.length; i+=4,p++) gray[p]=d[i]*0.299+d[i+1]*0.587+d[i+2]*0.114;
+  const src=new Uint8ClampedArray(d), gxK=[-1,0,1,-2,0,2,-1,0,1], gyK=[-1,-2,-1,0,0,0,1,2,1];
+  for (let y=1;y<h-1;y++) for (let x=1;x<w-1;x++) {
+    let gx=0,gy=0,k=0;
+    for (let ky=-1;ky<=1;ky++) for (let kx=-1;kx<=1;kx++) {
+      const v=gray[(y+ky)*w+(x+kx)]; gx+=v*gxK[k]; gy+=v*gyK[k++];
+    }
+    const idx=(y*w+x)*4;
+    if (Math.sqrt(gx*gx+gy*gy)>85) { const dk=clamp(30-edgeStr*4,5,40); d[idx]=dk; d[idx+1]=dk; d[idx+2]=dk+6; }
+    else { d[idx]=src[idx]; d[idx+1]=src[idx+1]; d[idx+2]=src[idx+2]; }
+  }
+  return imageData;
+}
+
+/* ── Iconos SVG inline ── */
+const Icons = {
+  sparkles: <path d="M12 3c-1 2.5-2.5 4-5 5 2.5 1 4 2.5 5 5 1-2.5 2.5-4 5-5-2.5-1-4-2.5-5-5z"/>,
+  scissors: <><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="8.12" x2="12" y2="12"/></>,
+  vector: <><polyline points="3 6 6 6 6 3"/><polyline points="18 6 21 6 21 3"/><polyline points="21 18 21 21 18 21"/><polyline points="6 21 3 21 3 18"/><line x1="6" y1="6" x2="18" y2="18"/></>,
+  layers: <><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></>,
+  play: <polygon points="5 3 19 12 5 21 5 3"/>,
+  download: <><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></>,
+  upload: <><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></>,
+  zap: <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>,
+  rotate: <><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 102.13-9.36L1 10"/></>,
+  check: <polyline points="20 6 9 17 4 12"/>,
+  x: <><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></>,
+  compare: <><line x1="12" y1="3" x2="12" y2="21"/><path d="M8 6H5a2 2 0 00-2 2v8a2 2 0 002 2h3"/><path d="M16 6h3a2 2 0 012 2v8a2 2 0 01-2 2h-3"/></>,
+  image: <><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></>,
+};
+const Ic = ({ n, size=18, color="currentColor" }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+    {Icons[n]}
+  </svg>
+);
+
+/* ── Toggle switch ── */
+function Toggle({ on, onChange, color=C.accent }) {
+  return (
+    <button type="button" onClick={() => onChange(!on)}
+      aria-checked={on} role="switch"
+      style={{
+        width:52, height:28, borderRadius:999,
+        background: on ? color : C.border,
+        border:"none", position:"relative", cursor:"pointer",
+        transition:"background 0.25s", flexShrink:0,
+        boxShadow: on ? `0 0 10px ${color}60` : "none",
+      }}>
+      <span style={{
+        position:"absolute", top:4, left: on ? 28 : 4,
+        width:20, height:20, borderRadius:999, background:"#fff",
+        transition:"left 0.25s cubic-bezier(.4,0,.2,1)",
+        boxShadow:"0 1px 4px rgba(0,0,0,0.4)",
+      }}/>
+    </button>
+  );
+}
+
+/* ── Slider ── */
+function Slider({ label, min, max, value, onChange, color=C.accent }) {
+  return (
+    <div style={{ marginBottom:14 }}>
+      <div style={{ display:"flex", justifyContent:"space-between", marginBottom:6 }}>
+        <span style={{ fontSize:12, color:C.inkDim }}>{label}</span>
+        <span style={{ fontSize:11, fontFamily:"monospace", color, fontWeight:600 }}>{value}</span>
+      </div>
+      <input type="range" min={min} max={max} value={value}
+        onChange={e => onChange(+e.target.value)}
+        style={{ width:"100%", accentColor:color }}
+      />
     </div>
+  );
+}
 
-    <div id="escena-oraculo" class="seccion-central oculto">
-        <div class="esfera-magica"></div>
-        <p class="texto-guia">El Oráculo ha extraído 7 cartas 
-            <button class="btn-principal">Crear mi Cuenta</button>
-            <br><br>
-            <a href="#" style="color: gray;" onclick="cerrarRegistro()">Cancelar</a>
-        </div>
+/* ── Toast ── */
+function Toast({ msg, type, show }) {
+  const col = type==="success" ? C.green : type==="error" ? C.red : C.accent;
+  const ic  = type==="success" ? "check"  : type==="error" ? "x"   : "zap";
+  return (
+    <div style={{
+      position:"fixed", bottom:28, left:"50%",
+      transform:`translateX(-50%) translateY(${show?0:10}px)`,
+      opacity: show ? 1 : 0, transition:"all 0.3s",
+      background:C.card, border:`1px solid ${col}50`,
+      borderRadius:14, padding:"12px 20px",
+      display:"flex", alignItems:"center", gap:10,
+      color:C.ink, fontSize:13, fontWeight:500,
+      boxShadow:`0 8px 32px rgba(0,0,0,0.6)`,
+      zIndex:9999, pointerEvents:"none",
+    }}>
+      <Ic n={ic} size={15} color={col}/>{msg}
     </div>
+  );
+}
 
-    <script src="https://cdn.jsdelivr.net/particles.js/2.0.0/particles.min.js"></script>
-    <script src="script.js"></script
-</body>
-</html>
+/* ── Compare slider ── */
+function CompareSlider({ before, after }) {
+  const [pct, setPct] = useState(50);
+  const wrap = useRef(null);
+  const drag = useRef(false);
+  const CHECKER = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20'%3E%3Crect width='10' height='10' fill='%23181c27'/%3E%3Crect x='10' y='10' width='10' height='10' fill='%23181c27'/%3E%3Crect x='10' width='10' height='10' fill='%23121520'/%3E%3Crect y='10' width='10' height='10' fill='%23121520'/%3E%3C/svg%3E")`;
+  const move = useCallback(cx => {
+    if (!wrap.current) return;
+    const r = wrap.current.getBoundingClientRect();
+    setPct(clamp(((cx-r.left)/r.width)*100, 1, 99));
+  }, []);
+  useEffect(() => {
+    const mm = e => drag.current && move(e.touches?.[0].clientX ?? e.clientX);
+    const mu = () => { drag.current=false; };
+    window.addEventListener("mousemove", mm);
+    window.addEventListener("touchmove", mm, {passive:false});
+    window.addEventListener("mouseup", mu);
+    window.addEventListener("touchend", mu);
+    return () => { window.removeEventListener("mousemove",mm); window.removeEventListener("touchmove",mm); window.removeEventListener("mouseup",mu); window.removeEventListener("touchend",mu); };
+  }, [move]);
+
+  return (
+    <div ref={wrap} onClick={e => move(e.clientX)}
+      style={{ position:"relative", width:"100%", borderRadius:16, overflow:"hidden", background:CHECKER, cursor:"ew-resize", userSelect:"none" }}>
+      {before && <img src={before} alt="" style={{ display:"block", width:"100%", height:"auto", maxHeight:"58vh", objectFit:"contain" }} draggable={false}/>}
+      <div style={{ position:"absolute", inset:0, overflow:"hidden", width:pct+"%" }}>
+        {after && <canvas ref={n => { if(!n||!after)return; n.width=after.width; n.height=after.height; n.getContext("2d").drawImage(after,0,0); }}
+          style={{ display:"block", width:"100%", height:"auto", maxHeight:"58vh", objectFit:"contain", position:"absolute", top:0, left:0 }}/>}
+      </div>
+      {/* divider */}
+      <div style={{ position:"absolute", top:0, bottom:0, left:pct+"%", width:2, background:C.accent, transform:"translateX(-1px)", boxShadow:`0 0 16px ${C.accentGlow}`, pointerEvents:"none" }}>
+        <div onMouseDown={()=>{drag.current=true;}} onTouchStart={()=>{drag.current=true;}}
+          style={{ position:"absolute", top:"50%", left:"50%", transform:"translate(-50%,-50%)", width:36, height:36, borderRadius:999, background:C.accent, border:"2px solid rgba(255,255,255,0.9)", display:"flex", alignItems:"center", justifyContent:"center", cursor:"ew-resize", pointerEvents:"all", boxShadow:`0 0 20px ${C.accentGlow}` }}>
+          <Ic n="compare" size={14} color="#fff"/>
+        </div>
+      </div>
+      <span style={{ position:"absolute", top:12, left:14, fontSize:10, fontFamily:"monospace", background:"rgba(10,12,20,0.8)", border:`1px solid ${C.border}`, borderRadius:6, padding:"3px 9px", color:C.inkDim, backdropFilter:"blur(4px)", pointerEvents:"none" }}>ANTES</span>
+      {pct>15 && <span style={{ position:"absolute", top:12, right:14, fontSize:10, fontFamily:"monospace", background:"rgba(10,12,20,0.8)", border:`1px solid ${C.accent}50`, borderRadius:6, padding:"3px 9px", color:C.accent, backdropFilter:"blur(4px)", pointerEvents:"none" }}>DESPUÉS</span>}
+    </div>
+  );
+}
+
+/* ── Spinner overlay ── */
+function Spinner({ msg }) {
+  return (
+    <div style={{ position:"absolute", inset:0, borderRadius:16, background:"rgba(10,12,20,0.85)", backdropFilter:"blur(8px)", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:16, zIndex:20 }}>
+      <div style={{ width:52, height:52, borderRadius:999, border:`3px solid ${C.accentSoft}`, borderTopColor:C.accent, animation:"spin 0.85s linear infinite" }}/>
+      <span style={{ fontSize:13, fontFamily:"monospace", color:C.accent, letterSpacing:"0.05em" }}>{msg}</span>
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+    </div>
+  );
+}
+
+/* ════════════════════════════════════════
+   APP
+════════════════════════════════════════ */
+export default function App() {
+  const [src, setSrc]           = useState(null);
+  const [imgEl, setImgEl]       = useState(null);
+  const [result, setResult]     = useState(null);
+  const [tab, setTab]           = useState("before");
+  const [busy, setBusy]         = useState(false);
+  const [busyMsg, setBusyMsg]   = useState("");
+  const [dragging, setDragging] = useState(false);
+  const fileRef = useRef(null);
+  const toastTimer = useRef(null);
+  const [toast, setToast] = useState({ show:false, msg:"", type:"info" });
+
+  /* tools */
+  const [eOn, setEOn] = useState(false);
+  const [bright, setBright] = useState(10);
+  const [cont, setCont]     = useState(15);
+  const [sharp, setSharp]   = useState(40);
+  const [bOn, setBOn]       = useState(false);
+  const [tol, setTol]       = useState(35);
+  const [vOn, setVOn]       = useState(false);
+  const [lvl, setLvl]       = useState(5);
+  const [edge, setEdge]     = useState(2);
+
+  const notify = (msg, type="info") => {
+    clearTimeout(toastTimer.current);
+    setToast({ show:true, msg, type });
+    toastTimer.current = setTimeout(() => setToast(t=>({...t,show:false})), 2600);
+  };
+
+  /* cargar imagen */
+  const loadFile = useCallback(file => {
+    if (!file?.type.startsWith("image/")) return;
+    const r = new FileReader();
+    r.onload = ev => {
+      const img = new Image();
+      img.onload = () => { setImgEl(img); setSrc(ev.target.result); setResult(null); setTab("before"); notify(`"${file.name}" cargada`, "success"); };
+      img.src = ev.target.result;
+    };
+    r.readAsDataURL(file);
+  }, []);
+
+  /* pegar con Ctrl+V */
+  useEffect(() => {
+    const fn = e => { for (const it of e.clipboardData?.items||[]) if (it.type.startsWith("image/")) { loadFile(it.getAsFile()); break; } };
+    window.addEventListener("paste", fn);
+    return () => window.removeEventListener("paste", fn);
+  }, [loadFile]);
+
+  /* procesar */
+  const process = useCallback(async (all=false) => {
+    if (!imgEl) { notify("Carga una imagen primero","error"); return; }
+    const doE=all||eOn, doB=all||bOn, doV=all||vOn;
+    if (!doE&&!doB&&!doV) { notify("Activa al menos una herramienta","error"); return; }
+    if (all) { setEOn(true); setBOn(true); setVOn(true); }
+    setBusy(true);
+    await new Promise(r => requestAnimationFrame(()=>requestAnimationFrame(r)));
+    const cv = document.createElement("canvas");
+    cv.width=imgEl.naturalWidth; cv.height=imgEl.naturalHeight;
+    const ctx = cv.getContext("2d");
+    ctx.drawImage(imgEl,0,0);
+    let id = ctx.getImageData(0,0,cv.width,cv.height);
+    const steps = [];
+    if (doE) steps.push(["Mejorando imagen…",   ()=>{ id=applyEnhance(id,bright,cont,sharp); ctx.putImageData(id,0,0); }]);
+    if (doB) steps.push(["Quitando fondo…",      ()=>{ id=applyBgRemoval(id,tol); ctx.putImageData(id,0,0); }]);
+    if (doV) steps.push(["Vectorizando…",        ()=>{ id=applyVectorize(id,lvl,edge); ctx.putImageData(id,0,0); }]);
+    for (const [m,fn] of steps) { setBusyMsg(m); await new Promise(r=>setTimeout(r,350)); fn(); }
+    setBusyMsg("Listo ✓"); await new Promise(r=>setTimeout(r,200));
+    setResult(cv); setTab("after"); setBusy(false);
+    notify("¡Imagen procesada!", "success");
+  }, [imgEl, eOn, bOn, vOn, bright, cont, sharp, tol, lvl, edge]);
+
+  const download = () => {
+    if (!result) return;
+    const a = document.createElement("a"); a.href=result.toDataURL("image/png"); a.download="pixelforge.png"; a.click();
+    notify("Descargando…","success");
+  };
+
+  const reset = () => { setSrc(null); setImgEl(null); setResult(null); setEOn(false); setBOn(false); setVOn(false); };
+
+  const anyOn = eOn||bOn||vOn;
+
+  return (
+    <div style={{ display:"flex", height:"100vh", background:C.bg, color:C.ink, fontFamily:"'Inter',system-ui,sans-serif", overflow:"hidden" }}>
+
+      {/* ══ SIDEBAR ══ */}
+      <aside style={{ width:260, flexShrink:0, background:C.sidebar, borderRight:`1px solid ${C.border}`, display:"flex", flexDirection:"column", overflow:"hidden" }}>
+
+        {/* Logo */}
+        <div style={{ padding:"20px 20px 16px", borderBottom:`1px solid ${C.border}`, display:"flex", alignItems:"center", gap:10 }}>
+          <div style={{ width:34, height:34, borderRadius:10, background:C.accentSoft, display:"flex", alignItems:"center", justifyContent:"center" }}>
+            <Ic n="zap" size={17} color={C.accent}/>
+          </div>
+          <div>
+            <div style={{ fontWeight:700, fontSize:15, letterSpacing:"-0.3px" }}>PixelForge</div>
+            <div style={{ fontSize:10, color:C.inkFaint, fontFamily:"monospace" }}>editor local</div>
+          </div>
+        </div>
+
+        {/* Tools */}
+        <div style={{ flex:1, overflowY:"auto", padding:"16px 14px" }}>
+          <div style={{ fontSize:10, fontFamily:"monospace", color:C.inkFaint, letterSpacing:"0.12em", marginBottom:14 }}>HERRAMIENTAS</div>
+
+          {/* Mejorar imagen */}
+          <div style={{ borderRadius:14, border:`1px solid ${eOn ? C.accent+"55" : C.border}`, background: eOn ? C.accentSoft : C.card, padding:"14px 16px", marginBottom:10, transition:"all 0.2s" }}>
+            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom: eOn ? 16 : 0 }}>
+              <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+                <div style={{ width:32, height:32, borderRadius:9, background: eOn ? C.accentSoft : "rgba(255,255,255,0.05)", display:"flex", alignItems:"center", justifyContent:"center" }}>
+                  <Ic n="sparkles" size={15} color={eOn ? C.accent : C.inkDim}/>
+                </div>
+                <div>
+                  <div style={{ fontSize:13, fontWeight:600 }}>Mejorar Imagen</div>
+                  <div style={{ fontSize:10, color:C.inkFaint, marginTop:1 }}>Brillo · Contraste · Nitidez</div>
+                </div>
+              </div>
+              <Toggle on={eOn} onChange={setEOn}/>
+            </div>
+            {eOn && <>
+              <Slider label="Brillo"    min={-50} max={50}  value={bright} onChange={setBright}/>
+              <Slider label="Contraste" min={-50} max={50}  value={cont}   onChange={setCont}/>
+              <Slider label="Nitidez"   min={0}   max={100} value={sharp}  onChange={setSharp}/>
+            </>}
+          </div>
+
+          {/* Quitar fondo */}
+          <div style={{ borderRadius:14, border:`1px solid ${bOn ? C.cyan+"55" : C.border}`, background: bOn ? C.cyanSoft : C.card, padding:"14px 16px", marginBottom:10, transition:"all 0.2s" }}>
+            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom: bOn ? 16 : 0 }}>
+              <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+                <div style={{ width:32, height:32, borderRadius:9, background: bOn ? C.cyanSoft : "rgba(255,255,255,0.05)", display:"flex", alignItems:"center", justifyContent:"center" }}>
+                  <Ic n="scissors" size={15} color={bOn ? C.cyan : C.inkDim}/>
+                </div>
+                <div>
+                  <div style={{ fontSize:13, fontWeight:600 }}>Quitar Fondo</div>
+                  <div style={{ fontSize:10, color:C.inkFaint, marginTop:1 }}>Vía Color-Keying</div>
+                </div>
+              </div>
+              <Toggle on={bOn} onChange={setBOn} color={C.cyan}/>
+            </div>
+            {bOn && <>
+              <Slider label="Tolerancia" min={5} max={100} value={tol} onChange={setTol} color={C.cyan}/>
+              <div style={{ fontSize:11, color:C.inkFaint, lineHeight:1.6, marginTop:-6 }}>Mejor con fondos de color sólido.</div>
+            </>}
+          </div>
+
+          {/* Vectorizar */}
+          <div style={{ borderRadius:14, border:`1px solid ${vOn ? C.pink+"55" : C.border}`, background: vOn ? C.pinkSoft : C.card, padding:"14px 16px", marginBottom:10, transition:"all 0.2s" }}>
+            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom: vOn ? 16 : 0 }}>
+              <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+                <div style={{ width:32, height:32, borderRadius:9, background: vOn ? C.pinkSoft : "rgba(255,255,255,0.05)", display:"flex", alignItems:"center", justifyContent:"center" }}>
+                  <Ic n="vector" size={15} color={vOn ? C.pink : C.inkDim}/>
+                </div>
+                <div>
+                  <div style={{ fontSize:13, fontWeight:600 }}>Efecto Vector / Trazos</div>
+                  <div style={{ fontSize:10, color:C.inkFaint, marginTop:1 }}>Zonas planas + contornos</div>
+                </div>
+              </div>
+              <Toggle on={vOn} onChange={setVOn} color={C.pink}/>
+            </div>
+            {vOn && <>
+              <Slider label="Niveles de color"   min={2} max={8} value={lvl}  onChange={setLvl}  color={C.pink}/>
+              <Slider label="Grosor de contorno" min={1} max={4} value={edge} onChange={setEdge} color={C.pink}/>
+            </>}
+          </div>
+
+          {/* Marcar todas */}
+          <button onClick={() => process(true)}
+            style={{ width:"100%", display:"flex", alignItems:"center", justifyContent:"center", gap:8, background:"rgba(255,255,255,0.05)", border:`1px solid ${C.border}`, color:C.inkDim, fontSize:13, fontWeight:600, borderRadius:12, padding:"11px 0", cursor:"pointer", marginBottom:10, transition:"all 0.15s" }}
+            onMouseEnter={e=>{e.currentTarget.style.background="rgba(255,255,255,0.09)"; e.currentTarget.style.color=C.ink;}}
+            onMouseLeave={e=>{e.currentTarget.style.background="rgba(255,255,255,0.05)"; e.currentTarget.style.color=C.inkDim;}}
+          >
+            <Ic n="layers" size={15} color="currentColor"/>
+            Marcar todas
+          </button>
+
+          {/* Procesar */}
+          <button onClick={() => process(false)} disabled={!anyOn||busy}
+            style={{ width:"100%", display:"flex", alignItems:"center", justifyContent:"center", gap:9, background: anyOn&&!busy ? C.accent : C.border, border:"none", color: anyOn&&!busy ? "#fff" : C.inkFaint, fontSize:14, fontWeight:700, borderRadius:12, padding:"13px 0", cursor: anyOn&&!busy ? "pointer" : "not-allowed", boxShadow: anyOn&&!busy ? `0 4px 24px ${C.accentGlow}` : "none", transition:"all 0.2s" }}>
+            {busy
+              ? <><div style={{ width:16,height:16,borderRadius:999,border:"2px solid rgba(255,255,255,0.25)",borderTopColor:"#fff",animation:"spin 0.7s linear infinite" }}/> Procesando…</>
+              : <><Ic n="play" size={15} color="#fff"/> Procesar Imagen</>
+            }
+          </button>
+        </div>
+
+        {/* Footer */}
+        <div style={{ padding:"12px 16px", borderTop:`1px solid ${C.border}`, fontSize:11, color:C.inkFaint, lineHeight:1.5 }}>
+          🔒 Todo se procesa en tu dispositivo. Sin servidores.
+        </div>
+      </aside>
+
+      {/* ══ MAIN AREA ══ */}
+      <main style={{ flex:1, display:"flex", flexDirection:"column", overflow:"hidden" }}>
+
+        {/* Top bar */}
+        <div style={{ height:54, flexShrink:0, background:C.sidebar, borderBottom:`1px solid ${C.border}`, display:"flex", alignItems:"center", justifyContent:"space-between", padding:"0 20px", gap:12 }}>
+
+          {/* Tabs */}
+          <div style={{ display:"flex", gap:4 }}>
+            {[{id:"before",label:"Original",ic:"image"},{id:"after",label:"Resultado",ic:"compare",dis:!result}].map(t=>(
+              <button key={t.id} onClick={()=>!t.dis&&setTab(t.id)} style={{ display:"flex", alignItems:"center", gap:6, padding:"6px 14px", borderRadius:9, border:"none", background: tab===t.id ? C.accentSoft : "transparent", color: tab===t.id ? C.accent : (t.dis?C.inkFaint:C.inkDim), fontSize:13, fontWeight: tab===t.id?600:400, cursor:t.dis?"not-allowed":"pointer", opacity:t.dis?0.45:1, transition:"all 0.15s" }}>
+                <Ic n={t.ic} size={14} color={tab===t.id?C.accent:(t.dis?C.inkFaint:C.inkDim)}/>
+                {t.label}
+                {t.id==="after"&&result&&<span style={{ width:6,height:6,borderRadius:999,background:C.green,display:"inline-block" }}/>}
+              </button>
+            ))}
+          </div>
+
+          {/* Actions */}
+          <div style={{ display:"flex", gap:8, alignItems:"center" }}>
+            {src && (
+              <button onClick={reset} style={{ display:"flex", alignItems:"center", gap:6, fontSize:12, color:C.inkDim, background:"transparent", border:`1px solid ${C.border}`, borderRadius:8, padding:"6px 12px", cursor:"pointer" }}>
+                <Ic n="rotate" size={13} color={C.inkDim}/>Nueva imagen
+              </button>
+            )}
+            {result && (
+              <button onClick={download} style={{ display:"flex", alignItems:"center", gap:7, fontSize:13, fontWeight:600, color:"#fff", background:`linear-gradient(135deg,${C.accent},#8b5cf6)`, border:"none", borderRadius:10, padding:"8px 18px", cursor:"pointer", boxShadow:`0 4px 16px ${C.accentGlow}` }}>
+                <Ic n="download" size={14} color="#fff"/>Descargar PNG
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Canvas area */}
+        <div style={{ flex:1, overflow:"auto", display:"flex", alignItems:"center", justifyContent:"center", padding:28,
+          background:`radial-gradient(ellipse at 50% 0%, rgba(108,99,255,0.06) 0%, transparent 65%), ${C.bg}` }}
+          onDragOver={e=>{e.preventDefault(); if(!src) setDragging(true);}}
+          onDragLeave={()=>setDragging(false)}
+          onDrop={e=>{e.preventDefault(); setDragging(false); loadFile(e.dataTransfer.files[0]);}}
+        >
+          {!src ? (
+            /* ── DROP ZONE ── */
+            <div style={{ width:"100%", maxWidth:560 }}>
+              <div
+                onClick={()=>fileRef.current?.click()}
+                style={{
+                  border:`2px dashed ${dragging?C.accent:C.border}`,
+                  borderRadius:24, background: dragging ? C.accentSoft : C.card,
+                  padding:"60px 40px", display:"flex", flexDirection:"column",
+                  alignItems:"center", gap:20, textAlign:"center",
+                  cursor:"pointer", transition:"all 0.2s",
+                  boxShadow: dragging ? `0 0 40px ${C.accentGlow}` : "none",
+                }}
+              >
+                {/* Ícono nube */}
+                <div style={{ width:88, height:88, borderRadius:24, background: dragging?C.accentSoft:"rgba(255,255,255,0.04)", border:`1.5px solid ${dragging?C.accent:C.border}`, display:"flex", alignItems:"center", justifyContent:"center", transition:"all 0.2s" }}>
+                  <Ic n="upload" size={38} color={dragging?C.accent:C.inkDim}/>
+                </div>
+
+                <div>
+                  <div style={{ fontSize:20, fontWeight:700, color:C.ink, marginBottom:8, letterSpacing:"-0.4px" }}>
+                    {dragging ? "¡Suelta aquí!" : "Arrastra tu imagen aquí"}
+                  </div>
+                  <div style={{ fontSize:14, color:C.inkDim, lineHeight:1.6 }}>
+                    o haz clic para explorar en tu dispositivo
+                  </div>
+                  <div style={{ fontSize:12, color:C.inkFaint, marginTop:6 }}>
+                    Soporta JPG, PNG, WebP · También puedes pegar con <kbd style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:5, padding:"1px 6px", fontFamily:"monospace", fontSize:11 }}>Ctrl+V</kbd>
+                  </div>
+                </div>
+
+                <div style={{ display:"inline-flex", alignItems:"center", gap:9, background:`linear-gradient(135deg,${C.accent},#8b5cf6)`, color:"#fff", fontSize:14, fontWeight:700, padding:"13px 32px", borderRadius:14, boxShadow:`0 6px 24px ${C.accentGlow}`, transition:"opacity 0.2s", opacity: dragging?0.7:1 }}>
+                  <Ic n="image" size={16} color="#fff"/>
+                  Seleccionar imagen
+                </div>
+
+                {/* Formatos */}
+                <div style={{ display:"flex", gap:8, flexWrap:"wrap", justifyContent:"center" }}>
+                  {["JPG","PNG","WebP","GIF","BMP"].map(f=>(
+                    <span key={f} style={{ fontSize:11, color:C.inkFaint, background:"rgba(255,255,255,0.04)", border:`1px solid ${C.border}`, borderRadius:6, padding:"3px 10px", fontFamily:"monospace" }}>{f}</span>
+                  ))}
+                </div>
+              </div>
+              <input ref={fileRef} type="file" accept="image/*" style={{ display:"none" }} onChange={e=>loadFile(e.target.files[0])}/>
+            </div>
+          ) : (
+            /* ── VIEWER ── */
+            <div style={{ width:"100%", maxWidth:800, position:"relative" }}>
+              {tab==="before" && (
+                <div style={{ borderRadius:16, overflow:"hidden", border:`1px solid ${C.border}` }}>
+                  <img src={src} alt="Original" style={{ display:"block", width:"100%", height:"auto", maxHeight:"64vh", objectFit:"contain", background:`url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20'%3E%3Crect width='10' height='10' fill='%23181c27'/%3E%3Crect x='10' y='10' width='10' height='10' fill='%23181c27'/%3E%3Crect x='10' width='10' height='10' fill='%23121520'/%3E%3Crect y='10' width='10' height='10' fill='%23121520'/%3E%3C/svg%3E")` }}/>
+                </div>
+              )}
+              {tab==="after" && result && (
+                <>
+                  <CompareSlider before={src} after={result}/>
+                  <div style={{ textAlign:"center", marginTop:10, fontSize:12, color:C.inkFaint }}>
+                    Arrastra la línea central para comparar
+                  </div>
+                  {/* Info bar */}
+                  <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginTop:14, background:C.card, border:`1px solid ${C.border}`, borderRadius:12, padding:"10px 16px" }}>
+                    <span style={{ fontSize:12, color:C.inkDim, fontFamily:"monospace" }}>{result.width} × {result.height} px</span>
+                    <button onClick={download} style={{ display:"flex", alignItems:"center", gap:7, fontSize:13, fontWeight:600, color:"#fff", background:`linear-gradient(135deg,${C.accent},#8b5cf6)`, border:"none", borderRadius:10, padding:"8px 18px", cursor:"pointer", boxShadow:`0 4px 16px ${C.accentGlow}` }}>
+                      <Ic n="download" size={14} color="#fff"/>Descargar PNG
+                    </button>
+                  </div>
+                </>
+              )}
+              {busy && <Spinner msg={busyMsg}/>}
+            </div>
+          )}
+        </div>
+      </main>
+
+      <Toast msg={toast.msg} type={toast.type} show={toast.show}/>
+    </div>
+  );
+}
+
 
